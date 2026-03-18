@@ -1655,12 +1655,22 @@ class GraphClient:
         if relationship_kinds:
             params["relationshipkinds"] = relationship_kinds
 
-        return self.base_client.request(
-            "GET",
-            "/api/v2/graphs/shortest-path",
-            params=params,
-            extra_headers={"Prefer": "wait=60"},
+        # Build URI with params manually so we can inspect the raw response
+        from urllib.parse import urlencode as _urlencode
+
+        uri = f"/api/v2/graphs/shortest-path?{_urlencode(params)}"
+        response = self.base_client._request(
+            "GET", uri, extra_headers={"Prefer": "wait=60"}
         )
+
+        if response.status_code == 200:
+            return response.json()
+        elif response.status_code == 404:
+            # BH CE returns 404 when no path exists between the two nodes
+            return {"data": {"nodes": {}, "edges": []}, "_no_path": True}
+        else:
+            response.raise_for_status()
+            return response.json()
 
     def get_edge_composition(
         self, source_node: int, target_node: int, edge_type: str
