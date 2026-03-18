@@ -99,6 +99,7 @@ class BloodhoundBaseClient:
         uri: str,
         body: Optional[bytes] = None,
         content_type: str = "application/json",
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> requests.Response:
         """
         Make a signed request to the BloodHound API
@@ -107,6 +108,8 @@ class BloodhoundBaseClient:
             method: HTTP method (GET, POST, etc.)
             uri: Request URI
             body: Optional request body
+            content_type: Content-Type header value
+            extra_headers: Optional additional headers to include in the request
 
         Returns:
             Response from the API
@@ -131,18 +134,23 @@ class BloodhoundBaseClient:
         if body is not None:
             digester.update(body)
 
+        # Build headers
+        headers = {
+            "User-Agent": "bloodhound-api-client 0.1",
+            "Authorization": f"bhesignature {self.token_id}",
+            "RequestDate": datetime_formatted,
+            "Signature": base64.b64encode(digester.digest()).decode(),
+            "Content-Type": content_type,
+        }
+        if extra_headers:
+            headers.update(extra_headers)
+
         # Make the request with signed headers
         try:
             return requests.request(
                 method=method,
                 url=self._format_url(uri),
-                headers={
-                    "User-Agent": "bloodhound-api-client 0.1",
-                    "Authorization": f"bhesignature {self.token_id}",
-                    "RequestDate": datetime_formatted,
-                    "Signature": base64.b64encode(digester.digest()).decode(),
-                    "Content-Type": content_type,
-                },
+                headers=headers,
                 data=body,
             )
         except requests.exceptions.ConnectionError as e:
@@ -1844,11 +1852,14 @@ class CypherClient:
 
         Note: 404 responses are treated as successful queries with no results, not errors
         """
-        data = {"query": query, "includeproperties": include_properties}
+        data = {"query": query, "include_properties": include_properties}
 
         try:
             response = self.base_client._request(
-                "POST", "/api/v2/graphs/cypher", json.dumps(data).encode("utf8")
+                "POST",
+                "/api/v2/graphs/cypher",
+                json.dumps(data).encode("utf8"),
+                extra_headers={"Prefer": "wait=60"},
             )
 
             if response.status_code == 200:
@@ -1870,17 +1881,11 @@ class CypherClient:
                     )
 
             elif response.status_code == 404:
-                return {
-                    "success": True,
-                    "data": {"nodes": [], "edges": []},
-                    "metadata": {
-                        "status": "success_no_results",
-                        "query": query,
-                        "has_results": False,
-                        "status_code": 404,
-                        "message": "Query executed successfully but found no matching data",
-                    },
-                }
+                # 404 here means route not found (e.g. missing Prefer header) — raise, don't swallow
+                raise BloodhoundAPIError(
+                    f"Cypher endpoint returned 404 — check BH CE version compatibility",
+                    response=response,
+                )
 
             elif response.status_code == 400:
                 try:
