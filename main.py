@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 BloodHound MCP Server — RedOps Integration
-5-tool intent-dispatch design for use with RedOps AI red-team agents.
+6-tool intent-dispatch design for use with RedOps AI red-team agents.
 
 Tools:
   bh_domains        — list all domains (bootstrap)
@@ -9,6 +9,7 @@ Tools:
   bh_query          — intent-based query dispatch (users, groups, sessions, etc.)
   bh_cypher         — raw Cypher query + optional save
   bh_shortest_path  — auto-resolve names → shortest attack path
+  bh_ingest         — upload a SharpHound/AzureHound ZIP and trigger ingest
 """
 
 import json
@@ -521,6 +522,38 @@ def bh_shortest_path(from_name: str, to_name: str) -> str:
 
     except (BloodhoundAPIError, BloodhoundConnectionError) as e:
         return json.dumps({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Tool 6 — bh_ingest
+# ---------------------------------------------------------------------------
+@mcp.tool()
+def bh_ingest(file_path: str, poll: bool = True, timeout: int = 300) -> str:
+    """
+    Upload a SharpHound or AzureHound collection ZIP to BloodHound CE and trigger ingest.
+
+    Executes the 3-step BloodHound CE file upload job:
+      1. POST /api/v2/file-upload/start         → create upload job
+      2. POST /api/v2/file-upload/{id}           → upload raw zip bytes
+      3. POST /api/v2/file-upload/{id}/end       → signal upload complete, trigger ingest
+
+    Args:
+        file_path : Absolute or relative path to the .zip file on the Kali host.
+        poll      : If True (default), wait for ingest to complete and return final status.
+        timeout   : Max seconds to wait when poll=True (default 300).
+
+    Returns JSON with:
+      - job_id : int
+      - status : final job status string (Complete, Failed, Ingesting, etc.)
+      - detail : status detail message
+    """
+    try:
+        result = _get_api().file_upload.ingest_file(file_path, poll, timeout)
+        return json.dumps(result, indent=2)
+    except (BloodhoundAPIError, BloodhoundConnectionError) as e:
+        return json.dumps({"error": str(e)})
+    except FileNotFoundError as e:
+        return json.dumps({"error": f"File not found: {e}"})
 
 
 # ---------------------------------------------------------------------------
