@@ -50,8 +50,8 @@ class BloodhoundBaseClient:
         domain: str = None,
         token_id: str = None,
         token_key: str = None,
-        port: int = 443,
-        scheme: str = "https",
+        port: int = None,
+        scheme: str = None,
     ):
         """
         Initialize BloodHound API base client
@@ -60,13 +60,14 @@ class BloodhoundBaseClient:
             domain: BloodHound CE/Enterprise domain (e.g. localhost or xyz.bloodhoundenterprise.io)
             token_id: API token ID
             token_key: API token key
-            port: API port (default: 443, or set BLOODHOUND_PORT env var)
-            scheme: URL scheme (default: https, or set BLOODHOUND_SCHEME env var)
+            port: API port (default: from BLOODHOUND_PORT env var, fallback 443)
+            scheme: URL scheme (default: from BLOODHOUND_SCHEME env var, fallback https)
         """
         # Load from parameters or environment variables
-        self.scheme = scheme or os.getenv("BLOODHOUND_SCHEME")
+        # NOTE: defaults are None so that env vars are not shadowed by hardcoded fallbacks.
+        self.scheme = scheme or os.getenv("BLOODHOUND_SCHEME") or "https"
         self.domain = domain or os.getenv("BLOODHOUND_DOMAIN")
-        self.port = port or os.getenv("BLOODHOUND_PORT")
+        self.port = port or os.getenv("BLOODHOUND_PORT") or 443
         self.token_id = token_id or os.getenv("BLOODHOUND_TOKEN_ID")
         self.token_key = token_key or os.getenv("BLOODHOUND_TOKEN_KEY")
 
