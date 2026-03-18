@@ -252,8 +252,23 @@ class FileUploadClient:
         return {"status": "ok", "http_status": resp.status_code}
 
     def get_job_status(self, job_id: int) -> dict:
-        """GET /api/v2/file-upload/{job_id} — returns job dict with status int field."""
-        return self.base_client.request("GET", f"/api/v2/file-upload/{job_id}")
+        """GET /api/v2/file-upload — list all jobs, return the one matching job_id.
+
+        BH CE does not expose GET /api/v2/file-upload/{id}; only the list endpoint
+        exists. We scan the list (newest-first, default limit 100) for our job.
+        """
+        resp = self.base_client._request("GET", "/api/v2/file-upload")
+        if resp.status_code not in (200, 202):
+            raise BloodhoundAPIError(
+                f"get_job_status failed: HTTP {resp.status_code}", response=resp
+            )
+        payload = resp.json()
+        jobs = payload.get("data", [])
+        for job in jobs:
+            if job.get("id") == job_id:
+                return {"data": job}
+        # Job not found in the list — treat as still pending
+        return {"data": {"status": 1, "status_message": "Running (not yet in list)"}}
 
     def ingest_file(
         self, file_path: str, poll: bool = True, timeout: int = 300
