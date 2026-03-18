@@ -1886,11 +1886,18 @@ class CypherClient:
                     )
 
             elif response.status_code == 404:
-                # 404 here means route not found (e.g. missing Prefer header) — raise, don't swallow
-                raise BloodhoundAPIError(
-                    f"Cypher endpoint returned 404 — check BH CE version compatibility",
-                    response=response,
-                )
+                # BH CE returns 404 when a Cypher query returns an empty result set
+                return {
+                    "success": True,
+                    "data": {"nodes": [], "edges": []},
+                    "metadata": {
+                        "status": "success_no_results",
+                        "query": query,
+                        "has_results": False,
+                        "status_code": 404,
+                        "message": "Query executed successfully but found no matching data",
+                    },
+                }
 
             elif response.status_code == 400:
                 try:
