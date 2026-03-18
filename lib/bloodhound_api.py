@@ -240,8 +240,15 @@ class FileUploadClient:
             )
 
     def end_job(self, job_id: int) -> dict:
-        """POST /api/v2/file-upload/{job_id}/end — signal upload complete, trigger ingest."""
-        return self.base_client.request("POST", f"/api/v2/file-upload/{job_id}/end")
+        """POST /api/v2/file-upload/{job_id}/end — signal upload complete, trigger ingest.
+        BH CE returns 204 No Content on success (empty body), so we use _request directly
+        instead of request() which always tries to parse JSON."""
+        resp = self.base_client._request("POST", f"/api/v2/file-upload/{job_id}/end")
+        if resp.status_code not in (200, 202, 204):
+            raise BloodhoundAPIError(
+                f"end_job failed: HTTP {resp.status_code}", response=resp
+            )
+        return {"status": "ok", "http_status": resp.status_code}
 
     def get_job_status(self, job_id: int) -> dict:
         """GET /api/v2/file-upload/{job_id} — returns job dict with status int field."""
