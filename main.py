@@ -15,6 +15,7 @@ Tools:
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
@@ -32,7 +33,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-load_dotenv()
+# Walk up from this file's location to find the repo-root .env so the server
+# picks up credentials regardless of what CWD uv sets at launch time.
+_here = Path(__file__).resolve().parent
+for _candidate in [_here, _here.parent, _here.parent.parent]:
+    _env_file = _candidate / ".env"
+    if _env_file.exists():
+        load_dotenv(_env_file)
+        break
+else:
+    load_dotenv()  # fallback: search CWD as before
 
 mcp = FastMCP("bloodhound_mcp")
 
