@@ -139,7 +139,7 @@ class BloodhoundBaseClient:
                     "User-Agent": "bloodhound-api-client 0.1",
                     "Authorization": f"bhesignature {self.token_id}",
                     "RequestDate": datetime_formatted,
-                    "Signature": base64.b64encode(digester.digest()),
+                    "Signature": base64.b64encode(digester.digest()).decode(),
                     "Content-Type": content_type,
                 },
                 data=body,
