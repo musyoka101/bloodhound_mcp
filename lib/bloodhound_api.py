@@ -162,6 +162,7 @@ class BloodhoundBaseClient:
         uri: str,
         params: Optional[Dict[str, Any]] = None,
         data: Optional[Dict[str, Any]] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """
         Make an API request and return the parsed JSON response
@@ -171,6 +172,7 @@ class BloodhoundBaseClient:
             uri: Request URI
             params: Optional query parameters
             data: Optional request body data (will be JSON encoded)
+            extra_headers: Optional additional headers to include in the request
 
         Returns:
             Parsed JSON response
@@ -185,7 +187,7 @@ class BloodhoundBaseClient:
             body = json.dumps(data).encode("utf8")
 
         # Make the request
-        response = self._request(method, uri, body)
+        response = self._request(method, uri, body, extra_headers=extra_headers)
 
         # Handle response
         try:
@@ -1654,7 +1656,10 @@ class GraphClient:
             params["relationshipkinds"] = relationship_kinds
 
         return self.base_client.request(
-            "GET", "/api/v2/graphs/shortest-path", params=params
+            "GET",
+            "/api/v2/graphs/shortest-path",
+            params=params,
+            extra_headers={"Prefer": "wait=60"},
         )
 
     def get_edge_composition(
