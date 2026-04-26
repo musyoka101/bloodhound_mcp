@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 from unittest.mock import MagicMock, Mock, patch
+from zipfile import ZipFile
 
 import pytest
 import requests
@@ -21,6 +22,7 @@ from lib.bloodhound_api import (
     ComputerClient,
     CypherClient,
     DomainClient,
+    FileUploadClient,
     GPOsClient,
     GraphClient,
     GroupClient,
@@ -322,6 +324,36 @@ class TestBloodhoundBaseClient:
             client.request("GET", "/api/v2/test")
         
         assert "Invalid JSON response" in str(exc_info.value)
+
+
+class TestFileUploadClient:
+    """Test BloodHound collection ZIP validation."""
+
+    def test_ingest_file_rejects_empty_zip_before_starting_job(self, tmp_path):
+        zip_path = tmp_path / "empty.zip"
+        with ZipFile(zip_path, "w"):
+            pass
+
+        client = FileUploadClient(Mock())
+
+        with patch.object(client, "start_job") as start_job:
+            with pytest.raises(BloodhoundError, match="archive is empty"):
+                client.ingest_file(str(zip_path))
+
+        start_job.assert_not_called()
+
+    def test_ingest_file_rejects_zip_without_json_before_starting_job(self, tmp_path):
+        zip_path = tmp_path / "not_bloodhound.zip"
+        with ZipFile(zip_path, "w") as zf:
+            zf.writestr("notes.txt", "not collection data")
+
+        client = FileUploadClient(Mock())
+
+        with patch.object(client, "start_job") as start_job:
+            with pytest.raises(BloodhoundError, match="no JSON collection files"):
+                client.ingest_file(str(zip_path))
+
+        start_job.assert_not_called()
 
 
 class TestBloodhoundAPI:

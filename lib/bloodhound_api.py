@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
+from zipfile import BadZipFile, ZipFile
 
 import requests
 from dotenv import load_dotenv
@@ -42,6 +43,14 @@ class BloodhoundAPIError(BloodhoundError):
         super().__init__(message)
         self.response = response
         self.status_code = response.status_code if response else None
+
+
+def _response_error_detail(response: requests.Response) -> str:
+    """Return the most useful error detail BloodHound included in a response."""
+    try:
+        return json.dumps(response.json())
+    except Exception:
+        return response.text.strip()
 
 
 class BloodhoundBaseClient:
@@ -195,12 +204,9 @@ class BloodhoundBaseClient:
             return response.json()
         except requests.exceptions.HTTPError as e:
             error_msg = f"HTTP Error: {e}"
-            try:
-                error_data = response.json()
-                if "error" in error_data:
-                    error_msg = f"{error_msg} - {error_data['error']}"
-            except:
-                pass
+            detail = _response_error_detail(response)
+            if detail:
+                error_msg = f"{error_msg} - {detail}"
             raise BloodhoundAPIError(error_msg, response=response)
         except json.JSONDecodeError:
             raise BloodhoundAPIError("Invalid JSON response", response=response)
@@ -231,6 +237,27 @@ class FileUploadClient:
     def __init__(self, base_client: BloodhoundBaseClient):
         self.base_client = base_client
 
+    def _validate_zip_file(self, file_path: str) -> Path:
+        """Validate a local BloodHound collection archive before creating an upload job."""
+        path = Path(file_path)
+        if not path.is_file():
+            raise FileNotFoundError(str(path))
+
+        try:
+            with ZipFile(path) as zf:
+                entries = [name for name in zf.namelist() if not name.endswith("/")]
+        except BadZipFile as e:
+            raise BloodhoundError(f"Invalid BloodHound ZIP '{path}': {e}") from e
+
+        if not entries:
+            raise BloodhoundError(f"Invalid BloodHound ZIP '{path}': archive is empty")
+        if not any(name.lower().endswith(".json") for name in entries):
+            raise BloodhoundError(
+                f"Invalid BloodHound ZIP '{path}': archive contains no JSON collection files"
+            )
+
+        return path
+
     def start_job(self) -> int:
         """POST /api/v2/file-upload/start — create a new upload job. Returns job_id."""
         response = self.base_client.request("POST", "/api/v2/file-upload/start")
@@ -238,7 +265,7 @@ class FileUploadClient:
 
     def upload_file(self, job_id: int, file_path: str) -> None:
         """POST /api/v2/file-upload/{job_id} — upload raw zip bytes."""
-        path = Path(file_path)
+        path = self._validate_zip_file(file_path)
         with open(path, "rb") as fh:
             body = fh.read()
         uri = f"/api/v2/file-upload/{job_id}"
@@ -246,8 +273,12 @@ class FileUploadClient:
             "POST", uri, body=body, content_type="application/zip"
         )
         if resp.status_code not in (200, 202):
+            detail = _response_error_detail(resp)
+            message = f"upload_file failed: HTTP {resp.status_code}"
+            if detail:
+                message = f"{message} - {detail}"
             raise BloodhoundAPIError(
-                f"upload_file failed: HTTP {resp.status_code}", response=resp
+                message, response=resp
             )
 
     def end_job(self, job_id: int) -> dict:
@@ -288,6 +319,8 @@ class FileUploadClient:
         Returns final job dict with status string added as 'status_str'.
         """
         import time
+
+        self._validate_zip_file(file_path)
 
         job_id = self.start_job()
         self.upload_file(job_id, file_path)

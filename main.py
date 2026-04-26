@@ -23,8 +23,7 @@ from mcp.server.fastmcp import FastMCP
 
 from lib.bloodhound_api import (
     BloodhoundAPI,
-    BloodhoundAPIError,
-    BloodhoundConnectionError,
+    BloodhoundError,
 )
 
 logging.basicConfig(
@@ -256,7 +255,7 @@ def bh_domains() -> str:
     try:
         result = _get_api().domains.get_all()
         return json.dumps(result, indent=2)
-    except (BloodhoundAPIError, BloodhoundConnectionError) as e:
+    except BloodhoundError as e:
         return json.dumps({"error": str(e)})
 
 
@@ -291,7 +290,7 @@ def bh_search(query: str, type: Optional[str] = None) -> str:
             kwargs["type"] = type
         result = _get_api().domains.search_objects(**kwargs)
         return json.dumps(result, indent=2)
-    except (BloodhoundAPIError, BloodhoundConnectionError) as e:
+    except BloodhoundError as e:
         return json.dumps({"error": str(e)})
 
 
@@ -417,7 +416,7 @@ def bh_query(
             }
         )
 
-    except (BloodhoundAPIError, BloodhoundConnectionError) as e:
+    except BloodhoundError as e:
         return json.dumps({"error": str(e)})
 
 
@@ -469,7 +468,7 @@ def bh_cypher(query: str, save_as: Optional[str] = None) -> str:
                 result["save_warning"] = f"Query ran OK but could not save: {save_err}"
 
         return json.dumps(result, indent=2)
-    except (BloodhoundAPIError, BloodhoundConnectionError) as e:
+    except BloodhoundError as e:
         return json.dumps({"error": str(e)})
 
 
@@ -530,7 +529,7 @@ def bh_shortest_path(from_name: str, to_name: str) -> str:
         }
         return json.dumps(result, indent=2)
 
-    except (BloodhoundAPIError, BloodhoundConnectionError) as e:
+    except BloodhoundError as e:
         return json.dumps({"error": str(e)})
 
 
@@ -560,7 +559,7 @@ def bh_ingest(file_path: str, poll: bool = True, timeout: int = 300) -> str:
     try:
         result = _get_api().file_upload.ingest_file(file_path, poll, timeout)
         return json.dumps(result, indent=2)
-    except (BloodhoundAPIError, BloodhoundConnectionError) as e:
+    except BloodhoundError as e:
         return json.dumps({"error": str(e)})
     except FileNotFoundError as e:
         return json.dumps({"error": f"File not found: {e}"})
