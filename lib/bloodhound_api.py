@@ -13,9 +13,23 @@ from zipfile import BadZipFile, ZipFile
 import requests
 from dotenv import load_dotenv
 
+def _load_bloodhound_env(
+    override: bool = False, include_repo_root: bool = False
+) -> None:
+    """Load BloodHound environment from the MCP or repo root .env file."""
+    here = Path(__file__).resolve().parent.parent
+    candidates = (here, here.parent, here.parent.parent) if include_repo_root else (here,)
+    for candidate in candidates:
+        env_path = candidate / ".env"
+        if env_path.exists():
+            load_dotenv(dotenv_path=env_path, override=override)
+            return
+    if include_repo_root:
+        load_dotenv(override=override)
+
+
 # Load environment variables from .env file
-env_path = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(dotenv_path=env_path)
+_load_bloodhound_env()
 
 
 class BloodhoundError(Exception):
@@ -72,7 +86,13 @@ class BloodhoundBaseClient:
             port: API port (default: from BLOODHOUND_PORT env var, fallback 443)
             scheme: URL scheme (default: from BLOODHOUND_SCHEME env var, fallback https)
         """
-        # Load from parameters or environment variables
+        self._explicit_domain = domain is not None
+        self._explicit_token_id = token_id is not None
+        self._explicit_token_key = token_key is not None
+        self._explicit_port = port is not None
+        self._explicit_scheme = scheme is not None
+
+        # Load from parameters or environment variables.
         # NOTE: defaults are None so that env vars are not shadowed by hardcoded fallbacks.
         self.scheme = scheme or os.getenv("BLOODHOUND_SCHEME") or "https"
         self.domain = domain or os.getenv("BLOODHOUND_DOMAIN")
@@ -102,6 +122,25 @@ class BloodhoundBaseClient:
 
         return f"{self.scheme}://{self.domain}:{self.port}/{formatted_uri}"
 
+    def _reload_credentials_from_env(self) -> bool:
+        """Reload credentials from .env/environment, preserving explicit constructor args."""
+        before_token = (self.token_id, self.token_key)
+
+        _load_bloodhound_env(override=True, include_repo_root=True)
+
+        if not self._explicit_scheme:
+            self.scheme = os.getenv("BLOODHOUND_SCHEME") or "https"
+        if not self._explicit_domain:
+            self.domain = os.getenv("BLOODHOUND_DOMAIN")
+        if not self._explicit_port:
+            self.port = os.getenv("BLOODHOUND_PORT") or 443
+        if not self._explicit_token_id:
+            self.token_id = os.getenv("BLOODHOUND_TOKEN_ID")
+        if not self._explicit_token_key:
+            self.token_key = os.getenv("BLOODHOUND_TOKEN_KEY")
+
+        return (self.token_id, self.token_key) != before_token
+
     def _request(
         self,
         method: str,
@@ -109,6 +148,7 @@ class BloodhoundBaseClient:
         body: Optional[bytes] = None,
         content_type: str = "application/json",
         extra_headers: Optional[Dict[str, str]] = None,
+        retry_auth: bool = True,
     ) -> requests.Response:
         """
         Make a signed request to the BloodHound API
@@ -156,7 +196,7 @@ class BloodhoundBaseClient:
 
         # Make the request with signed headers
         try:
-            return requests.request(
+            response = requests.request(
                 method=method,
                 url=self._format_url(uri),
                 headers=headers,
@@ -164,6 +204,19 @@ class BloodhoundBaseClient:
             )
         except requests.exceptions.ConnectionError as e:
             raise BloodhoundConnectionError(f"Failed to connect to BloodHound API: {e}")
+
+        if response.status_code in (401, 403) and retry_auth:
+            if self._reload_credentials_from_env():
+                return self._request(
+                    method,
+                    uri,
+                    body=body,
+                    content_type=content_type,
+                    extra_headers=extra_headers,
+                    retry_auth=False,
+                )
+
+        return response
 
     def request(
         self,

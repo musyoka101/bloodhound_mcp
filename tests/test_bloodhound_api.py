@@ -325,6 +325,64 @@ class TestBloodhoundBaseClient:
         
         assert "Invalid JSON response" in str(exc_info.value)
 
+    @patch('requests.request')
+    def test_request_reloads_rotated_env_token_after_auth_failure(self, mock_request):
+        """Test auth failures reload rotated API token values and retry once."""
+        auth_failure = Mock()
+        auth_failure.status_code = 401
+
+        success = Mock()
+        success.status_code = 200
+        success.raise_for_status.return_value = None
+        success.json.return_value = {"data": "ok"}
+
+        mock_request.side_effect = [auth_failure, success]
+
+        def reload_env(override=False, **_):
+            if override:
+                os.environ["BLOODHOUND_TOKEN_ID"] = "new_id"
+                os.environ["BLOODHOUND_TOKEN_KEY"] = "new_key"
+
+        with patch.dict(os.environ, {
+            "BLOODHOUND_DOMAIN": "test.local",
+            "BLOODHOUND_TOKEN_ID": "old_id",
+            "BLOODHOUND_TOKEN_KEY": "old_key",
+        }, clear=True):
+            with patch('lib.bloodhound_api._load_bloodhound_env', side_effect=reload_env):
+                client = BloodhoundBaseClient()
+                result = client.request("GET", "/api/v2/test")
+
+        assert result == {"data": "ok"}
+        assert mock_request.call_count == 2
+        first_headers = mock_request.call_args_list[0].kwargs['headers']
+        second_headers = mock_request.call_args_list[1].kwargs['headers']
+        assert first_headers['Authorization'] == "bhesignature old_id"
+        assert second_headers['Authorization'] == "bhesignature new_id"
+
+    @patch('requests.request')
+    def test_request_does_not_retry_auth_failure_without_new_token(self, mock_request):
+        """Test auth failures are not retried when reload finds no rotated token."""
+        auth_failure = Mock()
+        auth_failure.status_code = 401
+        auth_failure.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "401 Unauthorized"
+        )
+        auth_failure.json.return_value = {"error": "Invalid token"}
+        mock_request.return_value = auth_failure
+
+        client = BloodhoundBaseClient(
+            domain="test.local",
+            token_id="test_id",
+            token_key="test_key"
+        )
+
+        with patch.object(client, '_reload_credentials_from_env', return_value=False):
+            with pytest.raises(BloodhoundAPIError) as exc_info:
+                client.request("GET", "/api/v2/test")
+
+        assert exc_info.value.status_code == 401
+        assert mock_request.call_count == 1
+
 
 class TestFileUploadClient:
     """Test BloodHound collection ZIP validation."""
