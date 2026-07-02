@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 from unittest.mock import MagicMock, Mock, patch
+from urllib.parse import parse_qs, urlparse
 from zipfile import ZipFile
 
 import pytest
@@ -1303,33 +1304,48 @@ class TestGraphClient:
 
     def test_get_shortest_path_basic(self):
         """Test get_shortest_path without relationship kinds"""
-        self.mock_base_client.request.return_value = {"data": {"nodes": [], "edges": []}}
-        
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"data": {"nodes": [], "edges": []}}
+        self.mock_base_client._request.return_value = mock_response
+
         result = self.graph_client.get_shortest_path("start_node_123", "end_node_456")
-        
-        expected_params = {"start_node": "start_node_123", "end_node": "end_node_456"}
-        self.mock_base_client.request.assert_called_once_with(
-            "GET", "/api/v2/graphs/shortest-path", params=expected_params
-        )
+
+        args, kwargs = self.mock_base_client._request.call_args
+        parsed_uri = urlparse(args[1])
+        assert args[0] == "GET"
+        assert parsed_uri.path == "/api/v2/graphs/shortest-path"
+        assert parse_qs(parsed_uri.query) == {
+            "start_node": ["start_node_123"],
+            "end_node": ["end_node_456"],
+        }
+        assert kwargs == {"extra_headers": {"Prefer": "wait=60"}}
+        assert result == {"data": {"nodes": [], "edges": []}}
 
     def test_get_shortest_path_with_relationship_kinds(self):
         """Test get_shortest_path with relationship kinds"""
-        self.mock_base_client.request.return_value = {"data": {"nodes": [], "edges": []}}
-        
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"data": {"nodes": [], "edges": []}}
+        self.mock_base_client._request.return_value = mock_response
+
         result = self.graph_client.get_shortest_path(
-            "start_node_123", 
-            "end_node_456", 
+            "start_node_123",
+            "end_node_456",
             "MemberOf,AdminTo"
         )
-        
-        expected_params = {
-            "start_node": "start_node_123", 
-            "end_node": "end_node_456",
-            "relationshipkinds": "MemberOf,AdminTo"
+
+        args, kwargs = self.mock_base_client._request.call_args
+        parsed_uri = urlparse(args[1])
+        assert args[0] == "GET"
+        assert parsed_uri.path == "/api/v2/graphs/shortest-path"
+        assert parse_qs(parsed_uri.query) == {
+            "start_node": ["start_node_123"],
+            "end_node": ["end_node_456"],
+            "relationshipkinds": ["MemberOf,AdminTo"],
         }
-        self.mock_base_client.request.assert_called_once_with(
-            "GET", "/api/v2/graphs/shortest-path", params=expected_params
-        )
+        assert kwargs == {"extra_headers": {"Prefer": "wait=60"}}
+        assert result == {"data": {"nodes": [], "edges": []}}
 
     def test_get_edge_composition(self):
         """Test get_edge_composition"""
@@ -1932,7 +1948,7 @@ class TestIntegration:
             digester = hmac.new(digester.digest(), None, hashlib.sha256)
             digester.update("2023-01-01T12".encode())
             digester = hmac.new(digester.digest(), None, hashlib.sha256)
-            expected_signature = base64.b64encode(digester.digest())
+            expected_signature = base64.b64encode(digester.digest()).decode()
             
             # Mock requests to capture the actual signature
             with patch('requests.request') as mock_request:
@@ -1945,5 +1961,6 @@ class TestIntegration:
                 # Get the signature from the request headers
                 args, kwargs = mock_request.call_args
                 actual_signature = kwargs['headers']['Signature']
-                
+
+                assert isinstance(actual_signature, str)
                 assert actual_signature == expected_signature

@@ -394,12 +394,13 @@ class TestOffensiveSecurityHTTPScenarios:
         result = api.cypher.run_query(query, include_properties=True)
 
         # Assert: Check the API call (with bytes body parameter)
-        expected_data = {"query": query, "includeproperties": True}
-        mock_request.assert_called_once_with(
-            "POST",
-            "/api/v2/graphs/cypher",
-            json.dumps(expected_data).encode("utf8")
-        )
+        expected_data = {"query": query, "include_properties": True}
+        mock_request.assert_called_once()
+        args, kwargs = mock_request.call_args
+        assert args[0] == "POST"
+        assert args[1] == "/api/v2/graphs/cypher"
+        assert json.loads(args[2].decode("utf8")) == expected_data
+        assert kwargs == {"extra_headers": {"Prefer": "wait=60"}}
 
         # Verify the result structure
         assert result["success"] == True
