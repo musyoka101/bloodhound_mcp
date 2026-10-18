@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 from lib.bloodhound_api import (
     BloodhoundAPI,
@@ -267,22 +267,22 @@ def bh_search(query: str, type: Optional[str] = None) -> str:
     """
     Search BloodHound for an object by name or SID/ObjectID.
 
-    Args:
-        query : Name or partial name to search (required).
-                Examples: "domain admins", "dc01", "S-1-5-21-..."
-        type  : Optional filter. AD types: User, Group, Computer, OU, GPO,
-                Container, CertTemplate, RootCA, EnterpriseCA, AIACA, Trust.
-                Azure types: AZUser, AZGroup, AZApp, AZTenant, AZDevice.
-
     Returns a JSON object with 'data' list. Each item contains:
       - objectid          : use as subject_id in bh_query or bh_shortest_path
       - type              : object type (use as subject_type in bh_query)
       - name              : display name
       - distinguishedname : DN (AD objects only)
 
-    Typical workflow:
+    Typical workflow
         1. bh_search("alice") -> get objectid + type for user alice
         2. bh_query("admin rights", subject_id=<id>, subject_type="User")
+
+    Args:
+        query: Name or partial name to search (required).
+            Examples: "domain admins", "dc01", "S-1-5-21-..."
+        type: Optional filter. AD types: User, Group, Computer, OU, GPO,
+            Container, CertTemplate, RootCA, EnterpriseCA, AIACA, Trust.
+            Azure types: AZUser, AZGroup, AZApp, AZTenant, AZDevice.
     """
     try:
         kwargs: dict = {"query": query, "limit": 50}
@@ -361,15 +361,15 @@ def bh_query(
     subject_type = "AIACA":
       "aia ca controllers"
 
-    Args:
-        intent       : One of the intent strings above (case-insensitive).
-        domain_id    : Domain object ID (from bh_domains) - for domain-level queries.
-        subject_id   : Object ID (from bh_search) - for subject-level queries.
-        subject_type : Object type (from bh_search) - for subject-level queries.
-        limit        : Max results to return (default 50).
-        skip         : Pagination offset (default 0).
-
     Returns JSON with 'data' list and 'count'.
+
+    Args:
+        intent: One of the intent strings above (case-insensitive).
+        domain_id: Domain object ID (from bh_domains) - for domain-level queries.
+        subject_id: Object ID (from bh_search) - for subject-level queries.
+        subject_type: Object type (from bh_search) - for subject-level queries.
+        limit: Max results to return (default 50).
+        skip: Pagination offset (default 0).
     """
     norm_intent = intent.strip().lower()
     norm_type = (subject_type or "").strip().lower()
@@ -430,31 +430,32 @@ def bh_cypher(query: str, save_as: Optional[str] = None) -> str:
 
     Use this for anything not covered by bh_query: custom attack paths,
     owned-node traversals, ADCS ESC chains, Azure paths, etc.
+    A successful query can optionally be saved for future reuse with save_as.
 
-    Args:
-        query   : Cypher query string.
-        save_as : Optional name to save the query for future reuse.
-                  If provided, the query is saved after successful execution.
-
-    Returns JSON with:
+    Returns JSON with
       - success  : bool
       - data     : { nodes: [...], edges: [...] }
       - metadata : query info and status
 
-    Common patterns:
-      Find kerberoastable users:
+    Common patterns
+      Find kerberoastable users
         MATCH (u:User) WHERE u.hasspn=true AND u.enabled=true RETURN u
 
-      Find paths from owned to DA:
+      Find paths from owned to DA
         MATCH p=shortestPath((s:Base)-[*1..]->(t:Group {name:"DOMAIN ADMINS@DOMAIN.LOCAL"}))
         WHERE COALESCE(s.system_tags,'') CONTAINS 'owned' RETURN p
 
-      Find all DA members:
+      Find all DA members
         MATCH (n)-[:MemberOf*1..]->(g:Group)
         WHERE g.name =~ '(?i)domain admins.*' RETURN n
 
-      ASREPRoastable users:
+      ASREPRoastable users
         MATCH (u:User) WHERE u.dontreqpreauth=true AND u.enabled=true RETURN u
+
+    Args:
+        query: Cypher query string.
+        save_as: Optional name to save the query for future reuse.
+            If provided, the query is saved after successful execution.
     """
     try:
         api = _get_api()
@@ -483,19 +484,19 @@ def bh_shortest_path(from_name: str, to_name: str) -> str:
     Automatically resolves names to object IDs via bh_search, then calls
     the BloodHound shortest-path graph API.
 
-    Args:
-        from_name : Display name of the source node (e.g. "jsmith", "WORKSTATION01").
-        to_name   : Display name of the target node (e.g. "Domain Admins", "DC01").
-
     Returns JSON graph data with nodes and edges showing the attack path,
     plus a '_resolved' field showing what IDs were used.
 
     Returns an error JSON if either name cannot be resolved.
 
-    Examples:
+    Display-name usage patterns
         bh_shortest_path("jsmith", "Domain Admins")
         bh_shortest_path("WORKSTATION01", "DC01.CORP.LOCAL")
         bh_shortest_path("helpdesk@corp.local", "Enterprise Admins")
+
+    Args:
+        from_name: Display name of the source node (e.g. "jsmith", "WORKSTATION01").
+        to_name: Display name of the target node (e.g. "Domain Admins", "DC01").
     """
     try:
         api = _get_api()
@@ -541,20 +542,20 @@ def bh_ingest(file_path: str, poll: bool = True, timeout: int = 300) -> str:
     """
     Upload a SharpHound or AzureHound collection ZIP to BloodHound CE and trigger ingest.
 
-    Executes the 3-step BloodHound CE file upload job:
+    Executes the 3-step BloodHound CE file upload job
       1. POST /api/v2/file-upload/start         → create upload job
       2. POST /api/v2/file-upload/{id}           → upload raw zip bytes
       3. POST /api/v2/file-upload/{id}/end       → signal upload complete, trigger ingest
 
-    Args:
-        file_path : Absolute or relative path to the .zip file on the Kali host.
-        poll      : If True (default), wait for ingest to complete and return final status.
-        timeout   : Max seconds to wait when poll=True (default 300).
-
-    Returns JSON with:
+    Returns JSON with
       - job_id : int
       - status : final job status string (Complete, Failed, Ingesting, etc.)
       - detail : status detail message
+
+    Args:
+        file_path: Absolute or relative path to the .zip file on the Kali host.
+        poll: If True (default), wait for ingest to complete and return final status.
+        timeout: Max seconds to wait when poll=True (default 300).
     """
     try:
         result = _get_api().file_upload.ingest_file(file_path, poll, timeout)

@@ -201,7 +201,53 @@ Initially I was planning to allow for this to connect to Local LLMs, however dur
 
 ## Testing
 
-Run the test suite to verify functionality:
+### Six-tool FastMCP runtime
+
+`main.py` imports standalone `fastmcp.FastMCP`, matching the declared dependency;
+it does not import the removed MCP 1.x `mcp.server.fastmcp` module. The reviewed
+lock uses FastMCP **4.1.1**, MCP **2.3.0** and Pydantic **2.14.1** (Python 3.11).
+Use the lock for reproducible installation (`uv sync --locked`); within Sentinel,
+use the parent `updater/update.py` CLI for audited preparation and installation.
+Installation is not stable approval or publication.
+
+The current MCP interface has six tools: `bh_domains`, `bh_search`, `bh_query`,
+`bh_cypher`, `bh_shortest_path`, and `bh_ingest`. The broader API client features
+described above are not all registered as separate MCP tools or resources.
+
+FastMCP parses Google-style docstrings: argument entries use `name:` and become
+schema parameter descriptions. Keep client-visible result/workflow guidance in
+the prose before `Args:`; structured/admonition sections can otherwise disappear
+from tool descriptions. Native schema titles, metadata, output wrapping markers
+and `additionalProperties: false` differ from the old SDK's schema presentation;
+argument names, types, required fields and defaults remain the same.
+
+Run the real stdio / signed loopback HTTP regression (no live backend required):
+
+```bash
+uv run --no-sync python tests/stdio_regression.py
+
+# From the Sentinel root, also exercise the supported launcher:
+mcp-servers/bloodhound/.venv/bin/python \
+  mcp-servers/bloodhound/tests/stdio_regression.py \
+  --launcher .claude/bin/run-mcp-server
+```
+
+It checks discovery/help, all six tools and every routing-table entry (currently
+13 domain and 55 subject routes), non-default pagination, signed requests,
+Cypher save success/failure, path resolution/no-path/errors, upload stages,
+polling completion/failure/timeout, invalid archives and invalid arguments.
+Fixtures prove route traversal and migration compatibility, not independent
+certification of every endpoint against every BloodHound version. They do not
+replace authorized live read-only validation, nor authorize live uploads/saves.
+Graph size, response size, HTTP timeout and concurrency policies are unchanged.
+
+### Existing suites
+
+These remain useful for HTTP/API coverage, but the full historical suite is not
+green: baseline and upgraded runs each had **162 passed, 86 failed, 13 skipped**,
+with identical failed test IDs. In particular, legacy MCP tests refer to retired
+`get_*` tools and `bloodhound_api` globals rather than this six-tool interface.
+Do not treat these as passing current-tool coverage or hide the failures.
 
 ```bash
 # Basic functionality tests
@@ -210,10 +256,10 @@ uv run pytest tests/test_basics.py -v
 # HTTP request testing
 uv run pytest tests/test_bloodhound_http.py -v
 
-# MCP tools testing
+# Historical MCP tests (known baseline failures; see above)
 uv run pytest tests/test_mcp_tools.py -v
 
-# Integration tests (requires running BloodHound instance)
+# Historical integration tests (review scope before enabling against a live graph)
 BLOODHOUND_INTEGRATION_TESTS=1 uv run pytest tests/test_integration.py -v
 ```
 
@@ -248,4 +294,3 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 - **SpecterOps** for BloodHound Community Edition
 - **@jlowin** for [FastMCP](https://github.com/jlowin/fastmcp)
 - **@xpn** for MCP inspiration through the Mythic MCP project
-
